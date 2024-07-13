@@ -1,0 +1,11 @@
+{
+	"id": "location-database",
+	"name": "Location Database",
+	"version": "0.1.0",
+	"minAppVersion": "0.15.0",
+	"description": "Create a database of locations of interest.",
+	"author": "ND24 Dev",
+	"authorUrl": "https://github.com/natedog2424",
+	"fundingUrl": "https://github.com/natedog2424",
+	"isDesktopOnly": false
+}
