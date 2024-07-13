@@ -1,4 +1,4 @@
-import { App, Editor, MarkdownView, Modal, Notice, Plugin, PluginSettingTab, Setting, requestUrl } from 'obsidian';
+import { App, Editor, MarkdownView, Modal, Notice, Plugin, PluginSettingTab, Setting, TFile, TFolder, requestUrl } from 'obsidian';
 
 // Remember to rename these classes and interfaces!
 
@@ -12,6 +12,104 @@ const DEFAULT_SETTINGS: LocationDatabaseSettings = {
 
 export default class LocationDatabase extends Plugin {
 	settings: LocationDatabaseSettings;
+
+	async addLocationFileFromUrl(mapsUrl: string){
+			// Got a valid URL
+			// parse url args
+			const url = new URL(mapsUrl);
+			const args = new URLSearchParams(url.search);
+
+			const title = args.get("q") ?? "New Location";
+			const address = args.get("address") ?? "NO ADDRESS";
+			const coordinates = args.get("ll") ?? "NO COORDINIATES";
+
+			try {
+
+				// Use the cartes.io API to get an image of a marker at the coordinates
+				// create cartes.io map
+				// POST request to https://cartes.io/api/maps with title set to title
+				const mapData = {
+					title: title,
+					privacy: "unlisted",
+					users_can_create_markers: "yes"
+				};
+
+				let resp = await requestUrl(
+					{
+						method: 'post',
+						url: 'https://cartes.io/api/maps',
+						headers: {
+							'Content-Type': 'application/json',
+							'Accept': 'application/json',
+						},
+						body: JSON.stringify(mapData),
+						throw: true
+					});
+				const result = JSON.parse(resp.text);
+				const uuid = result.uuid;
+
+
+				// POST request to https://cartes.io/api/maps/{uuid}/markers with lat and lng set
+				const markerData = {
+					lat: Number(coordinates.split(',')[0]),
+					lng: Number(coordinates.split(',')[1]),
+					category_name: "Marker"
+				};
+				
+				requestUrl(
+					{
+						method: 'post',
+						url: `https://cartes.io/api/maps/${uuid}/markers`,
+						headers: {
+							'Content-Type': 'application/json',
+							'Accept': 'application/json',
+						},
+						body: JSON.stringify(markerData),
+						throw: true
+					});
+
+				// Create new note at location specified in settings
+				const folderPath = this.settings.entryFolder;
+				const folder = this.app.vault.getAbstractFileByPath(folderPath);
+				if (!folder) {
+					new Notice(`Folder ${folderPath} does not exist`);
+					return;
+				}
+
+				const fileName = `${title}.md`;
+				const filePath = `${folderPath}/${fileName}`;
+				const fileExists = await this.app.vault.adapter.exists(filePath);
+				if (fileExists) {
+					new Notice(`File ${fileName} already exists`);
+					return;
+				}
+
+				const frontmatter = `---
+	Location: "[${title}](${mapsUrl})"
+	title: ${title}
+	address: ${address}
+	coordinates: ${coordinates}
+	image: https://cartes.io/api/maps/${uuid}/images/static?zoom=11
+	---
+	`;
+				const content = `\n
+	<iframe src="https://app.cartes.io/maps/${uuid}/embed?type=map&lat=${coordinates.split(',')[0]}&lng=${coordinates.split(',')[1]}&zoom=11" 
+	width="100%" 
+	height="600" 
+	frameborder="0"></iframe>`;
+				try { 
+					await this.app.vault.create(filePath, frontmatter + content);
+				} catch {
+					// overrite existing file
+					const file = this.app.vault.getAbstractFileByPath(filePath) as TFile;
+					await this.app.vault.modify(file, frontmatter + content);
+				}
+				new Notice(`New location entry created: ${fileName}`);
+			} catch(e) {
+				new Notice(`Failed to create entry for ${title}. You may be rate limited, try again later`);
+				throw e;
+			}
+	}
 
 	async createNewLocationEntry() {
 
@@ -36,84 +134,7 @@ export default class LocationDatabase extends Plugin {
 					return;
 				}
 			}
-			// Got a valid URL
-			// parse url args
-			const url = new URL(mapsUrl);
-			const args = new URLSearchParams(url.search);
-
-			const title = args.get("q") ?? "New Location";
-			const address = args.get("address") ?? "NO ADDRESS";
-			const coordinates = args.get("ll") ?? "NO COORDINIATES";
-
-			// Use the cartes.io API to get an image of a marker at the coordinates
-			// create cartes.io map
-			// POST request to https://cartes.io/api/maps with title set to title
-			const mapData = {
-				title: title,
-				privacy: "unlisted",
-				users_can_create_markers: "yes"
-			};
-
-			let resp = await requestUrl(
-				{
-					method: 'post',
-					url: 'https://cartes.io/api/maps',
-					headers: {
-						'Content-Type': 'application/json',
-						'Accept': 'application/json',
-					},
-					body: JSON.stringify(mapData),
-				});
-			const result = JSON.parse(resp.text);
-			const uuid = result.uuid;
-
-
-			// POST request to https://cartes.io/api/maps/{uuid}/markers with lat and lng set
-			const markerData = {
-				lat: Number(coordinates.split(',')[0]),
-				lng: Number(coordinates.split(',')[1]),
-				category_name: "Marker"
-			};
-
-			console.log(requestUrl(
-				{
-					method: 'post',
-					url: `https://cartes.io/api/maps/${uuid}/markers`,
-					headers: {
-						'Content-Type': 'application/json',
-						'Accept': 'application/json',
-					},
-					body: JSON.stringify(markerData),
-				}));
-				console.log(JSON.stringify(markerData));
-
-			// Create new note at location specified in settings
-			const folderPath = this.settings.entryFolder;
-			const folder = this.app.vault.getAbstractFileByPath(folderPath);
-			if (!folder) {
-				new Notice(`Folder ${folderPath} does not exist`);
-				return;
-			}
-
-			const fileName = `${title}.md`;
-			const filePath = `${folderPath}/${fileName}`;
-			const fileExists = await this.app.vault.adapter.exists(filePath);
-			if (fileExists) {
-				new Notice(`File ${fileName} already exists`);
-				return;
-			}
-
-			const frontmatter = `---
-Location: "[${title}](${mapsUrl})"
-title: ${title}
-address: ${address}
-coordinates: ${coordinates}
-image: https://cartes.io/api/maps/${uuid}/images/static?zoom=11
----
-`;
-			const content = frontmatter + "\n";
-			await this.app.vault.create(filePath, content);
-			new Notice(`New location entry created: ${fileName}`);
+			this.addLocationFileFromUrl(mapsUrl);
 
 		}).catch((error) => {
 			// Failed to read from clipboard
@@ -121,10 +142,102 @@ image: https://cartes.io/api/maps/${uuid}/images/static?zoom=11
 		});
 	}
 
+	// This function should find any malformed data and regerate the file if needed
+	async updateAllLocationEntries(){
+		// Get all files from the designated folder
+		const folderPath = this.settings.entryFolder;
+		const folder = this.app.vault.getAbstractFileByPath(folderPath);
+		if (!folder || !(folder instanceof TFolder)) {
+			new Notice(`Folder ${folderPath} does not exist`);
+			return;
+		}
+		const files = (folder as TFolder).children;
+
+		// loop over each file
+		for (const abs_file of files) {
+			if(abs_file instanceof TFolder){
+				continue;
+			}
+			let file = abs_file as TFile;
+			// parse the URL from location property in the frontmatter. the url is a markdown url
+			let content = await this.app.vault.read(file);
+			const frontmatterRegex = /^---\n([\s\S]*?)\n---\n/;
+			const frontmatterMatch = content.match(frontmatterRegex);
+			if (!frontmatterMatch) {
+				continue;
+			}
+			// remove frontmatter from content
+			content = content.replace(frontmatterMatch[0],'');
+
+			const frontmatter = frontmatterMatch[1];
+			const locationRegex = /Location: "\[.*\]\((.*)\)"/;
+			const locationMatch = frontmatter.match(locationRegex);
+			if (!locationMatch) {
+				continue;
+			}
+			const locationUrl = locationMatch[1];
+
+			// parse the map uuid from the image property
+			const imageRegex = /image: https:\/\/cartes.io\/api\/maps\/(.*)\/images\/static/;
+			const imageMatch = frontmatter.match(imageRegex);
+			let mapUuid;
+			if (imageMatch) {
+				mapUuid = imageMatch[1];
+			} else {
+				mapUuid = false;
+			}
+			
+
+			// if there is no mapUuid, must regenerate the whole file
+			if (!mapUuid) {
+				// rename the current entry to have (old) at the end to save backup
+				const oldFileName = file.basename;
+				const newFileName = `${oldFileName} (old)`;
+				const newPath = `${folderPath}/${newFileName}`;
+				await this.app.vault.rename(file, newPath);
+
+				try {
+					await this.addLocationFileFromUrl(locationUrl);
+					// Delete backup
+					const fileToDelete = this.app.vault.getAbstractFileByPath(newPath);
+					if (fileToDelete) {
+						await this.app.vault.delete(fileToDelete);
+					} else {
+						new Notice(`File ${newPath} does not exist`);
+					}
+				} catch (error) {
+					await this.app.vault.rename(file, `${folderPath}/${oldFileName}.md`);
+				}
+			}
+
+			// Check if the map embed is missing
+			if (content.trim() == ""){
+				// get coordinates from url
+				const url = new URL(locationUrl);
+				const args = new URLSearchParams(url.search);
+				const coordinates = args.get("ll");
+
+				if(!coordinates){
+					new Notice(`No coordinates found in URL: ${locationUrl}`);
+					continue;
+				}
+				
+				const mapEmbed = `<iframe src="https://app.cartes.io/maps/${mapUuid}/embed?type=map&lat=${coordinates.split(',')[0]}&lng=${coordinates.split(',')[1]}&zoom=11" 
+					width="100%" 
+					height="600" 
+					frameborder="0"></iframe>`;
+
+				// add to file
+				const newContent = content + mapEmbed;
+				await this.app.vault.modify(file, "---\n" + frontmatter + "\n---\n" + newContent);
+			}
+		}
+	}
+
 	async onload() {
 		await this.loadSettings();
 
-		// This creates an icon in the left ribbon.
+		// Ribbon button for new location
 		const ribbonIconEl = this.addRibbonIcon(
 			'map-pinned',
 			'New Location',
@@ -132,10 +245,9 @@ image: https://cartes.io/api/maps/${uuid}/images/static?zoom=11
 				this.createNewLocationEntry()
 			}
 		);
-		// Perform additional things with the ribbon
-		ribbonIconEl.addClass('my-plugin-ribbon-class');
+		
 
-		// This adds a simple command that can be triggered anywhere
+		// Add a command for a new entry
 		this.addCommand({
 			id: 'add-new-location-entry',
 			name: 'Add a new location entry',
@@ -144,17 +256,17 @@ image: https://cartes.io/api/maps/${uuid}/images/static?zoom=11
 			}
 		});
 
-		// This adds a settings tab so the user can configure various aspects of the plugin
-		this.addSettingTab(new LocationDatabaseSettingTab(this.app, this));
-
-		// If the plugin hooks up any global DOM events (on parts of the app that doesn't belong to this plugin)
-		// Using this function will automatically remove the event listener when this plugin is disabled.
-		this.registerDomEvent(document, 'click', (evt: MouseEvent) => {
-			console.log('click', evt);
+		// Add a command for updating existing entries in case new features are added
+		this.addCommand({
+			id: 'update-location-entries',
+			name: 'Update location entries',
+			callback: () => {
+				this.updateAllLocationEntries();
+			}
 		});
 
-		// When registering intervals, this function will automatically clear the interval when the plugin is disabled.
-		this.registerInterval(window.setInterval(() => console.log('setInterval'), 5 * 60 * 1000));
+		// This adds a settings tab so the user can configure various aspects of the plugin
+		this.addSettingTab(new LocationDatabaseSettingTab(this.app, this));
 	}
 
 	onunload() {
