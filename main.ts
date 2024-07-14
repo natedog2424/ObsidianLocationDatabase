@@ -85,18 +85,18 @@ export default class LocationDatabase extends Plugin {
 				}
 
 				const frontmatter = `---
-	Location: "[${title}](${mapsUrl})"
-	title: ${title}
-	address: ${address}
-	coordinates: ${coordinates}
-	image: https://cartes.io/api/maps/${uuid}/images/static?zoom=11
+Location: "[${title}](${mapsUrl})"
+title: ${title}
+address: ${address}
+coordinates: ${coordinates}
+image: https://cartes.io/api/maps/${uuid}/images/static?zoom=11
 	---
 	`;
 				const content = `\n
-	<iframe src="https://app.cartes.io/maps/${uuid}/embed?type=map&lat=${coordinates.split(',')[0]}&lng=${coordinates.split(',')[1]}&zoom=11" 
-	width="100%" 
-	height="600" 
-	frameborder="0"></iframe>`;
+<iframe src="https://app.cartes.io/maps/${uuid}/embed?type=map&lat=${coordinates.split(',')[0]}&lng=${coordinates.split(',')[1]}&zoom=11" 
+width="100%" 
+height="600" 
+frameborder="0"></iframe>`;
 				try { 
 					await this.app.vault.create(filePath, frontmatter + content);
 				} catch {
